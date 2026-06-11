@@ -16,18 +16,19 @@
 | `ops_get_fulltext` | 说明书 / 权利要求全文 | "列出权利要求" |
 | `ops_get_family` | INPADOC 扩展同族 | "这个专利在哪些国家申请了？" |
 | `ops_get_equivalents` | DOCDB 简单同族 | "有哪些等效专利？" |
-| `ops_get_legal` | 法律状态事件 | "这个专利现在有效吗？" |
-| `ops_get_register` | EPO 登记簿 | "审查到哪一步了？" |
-| `ops_get_images` | 附图信息 | "让我看看附图" |
+| `ops_get_legal` | 查询法律事件 | "这个专利现在有效吗？" |
+| `ops_get_register` | EPO 登记簿 | "审查到哪一步了？" -主要适用于 EP 文献|
+| `ops_get_images` | 查询可用附图元数据| "调取附图元信息"-当前工具不直接下载图片文件 |
 | `ops_cpc_lookup` | CPC 分类层级查询 | "A01B 下面有什么子类？" |
 | `ops_cpc_search` | CPC 关键词搜索 | "激光相关的 CPC 分类号？" |
 | `ops_convert_number` | 专利号格式转换 | "把 CN 申请号转成 DOCDB 格式" |
-| `ops_throttle_status` | 配额/限流状态 | "OPS 配额还剩多少？" |
+| `ops_throttle_status` | 显示最近一次请求的限流信息 | 需先执行一次 OPS 请求；不直接计算剩余额度 |
 
 ## 前置条件
 
 - **Python 3.10+**（推荐 3.12+，3.14 已验证）
-- **EPO 开发者账号**（[免费注册](https://developers.epo.org)，审批约 1-3 工作日）
+- 支持本地 stdio MCP Server 的客户端，例如 Claude Code
+- **EPO 开发者账号**（[免费注册](https://developers.epo.org)）
 
 ## 快速开始
 
@@ -38,137 +39,219 @@
 3. 选择 **OPS v3.2**，创建后获取 **Consumer Key** 和 **Consumer Secret**
 4. 需注意官方说明书说明每个app只存在20分，过了20分钟需要另外建立一个app重新获得key和secret，为了便于替换key和secret，设置了"ops_credentials.example.json"文档，只需要把新的key和secret粘贴到该文档中，MCP设置会进行热更新。
 
-### 2. 安装
+### 2. 克隆仓库
 
 ```bash
-# 克隆仓库
-git clone https://github.com/<你的用户名>/epo-ops-mcp.git
-cd epo-ops-mcp
+git clone https://github.com/talenlin/epo-ops.git
+cd epo-ops
+```
 
-# 安装 Python 依赖
-pip install mcp httpx
+### 3. 创建虚拟环境并安装依赖
 
-# 配置凭证（将 example 文件重命名并填入你的 Key/Secret）
+#### macOS / Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install "mcp>=1.2,<2" "httpx>=0.27,<1"
+```
+
+#### Windows PowerShell
+
+```powershell
+py -m venv .venv
+& .\.venv\Scripts\Activate.ps1
+py -m pip install "mcp>=1.2,<2" "httpx>=0.27,<1"
+```
+
+## 配置凭证
+
+推荐复制凭证模板，在本地文件中填写真实凭证。
+
+### macOS / Linux
+
+```bash
 cp ops_credentials.example.json ops_credentials.json
-# 编辑 ops_credentials.json 填入真实凭证
 ```
 
-### 3. 注册到 Claude Code
+### Windows PowerShell
 
-```bash
-# macOS / Linux
-claude mcp add -s user -t stdio epo-ops \
-    -- python3 "$(pwd)/ops_mcp_server.py"
-
-# Windows（必须使用完整 Python 路径！）
-claude mcp add -s user -t stdio epo-ops \
-    -- C:/Users/<用户名>/AppData/Local/Python/bin/python.exe "D:/<完整路径>/ops_mcp_server.py"
+```powershell
+Copy-Item ops_credentials.example.json ops_credentials.json
 ```
 
-> 💡 **为什么 Windows 要用完整路径？** 见下方 [常见问题](#windows-python-路径问题)。
+编辑 `ops_credentials.json`：
 
-### 4. 验证
+```json
+{
+  "OPS_CONSUMER_KEY": "YOUR_KEY",
+  "OPS_CONSUMER_SECRET": "YOUR_SECRET"
+}
+```
+
+`ops_credentials.json` 已被 `.gitignore` 排除。提交代码前仍建议运行 `git status`，确认真实凭证没有进入待提交文件。
+
+### 凭证读取优先级
+
+Server 按以下顺序查找凭证：
+
+1. `OPS_CREDENTIALS_FILE` 指向的自定义 JSON 文件
+2. 与 `ops_mcp_server.py` 位于同一目录的 `ops_credentials.json`
+3. 环境变量 `OPS_CONSUMER_KEY` 和 `OPS_CONSUMER_SECRET`
+
+凭证会在每次工具调用时重新读取。修改凭证文件后，通常无需重启 MCP Server。
+
+## 连通性测试
+
+确保凭证已经配置，然后运行：
+
+### macOS / Linux
 
 ```bash
-# 连通性测试
 python ops_mcp_server.py --test
 ```
 
-成功输出：
-```
-=== EPO OPS MCP Server — Connectivity Test ===
-[1/4] Authenticating...  [OK] Token obtained (28 chars)
-[2/4] Fetching EP1000000 biblio...  [OK] Got 10949 bytes
-[3/4] Searching 'pa=IBM'...  [OK] Got 1286 bytes
-[4/4] Throttle status:  (search=green:15, retrieval=green:100)
-=== All tests passed ===
+### Windows PowerShell
+
+```powershell
+py .\ops_mcp_server.py --test
 ```
 
-重启 Claude Code 后 `/mcp` 应显示 **epo-ops** 及 13 个工具。
+测试会依次检查身份认证、书目数据检索、专利搜索及最近一次请求返回的限流信息。实际响应大小和限流头会随时间、账号及 EPO 服务状态变化。
 
-### 5. 使用
+## 注册到 Claude Code
 
+下面的配置使用用户级 scope，因此可以在多个项目中调用该 MCP Server。若只希望当前项目使用，可将 `--scope user` 改为 `--scope local`。
+
+### macOS / Linux
+
+在仓库根目录运行：
+
+```bash
+claude mcp add --scope user --transport stdio epo-ops -- \
+  "$(pwd)/.venv/bin/python" "$(pwd)/ops_mcp_server.py"
 ```
-你：帮我查一下 EP1000000 的基本信息
-你：EP12345 现在有效吗？
-你：苹果在折叠铰链方面的专利有哪些？
+
+### Windows PowerShell
+
+在仓库根目录运行：
+
+```powershell
+$python = (Resolve-Path ".\.venv\Scripts\python.exe").Path
+$server = (Resolve-Path ".\ops_mcp_server.py").Path
+claude mcp add --scope user --transport stdio epo-ops -- $python $server
 ```
 
-## 凭证管理
+检查注册结果：
 
-本 Server 按以下优先级读取凭证：
+```bash
+claude mcp get epo-ops
+claude mcp list
+```
 
-1. `ops_credentials.json`（与脚本同目录）← **推荐**
-2. 环境变量 `OPS_CONSUMER_KEY` / `OPS_CONSUMER_SECRET`
-3. 环境变量 `OPS_CREDENTIALS_FILE`（指向自定义 JSON 路径）
+在 Claude Code 会话内运行 `/mcp`，连接成功后应看到 `epo-ops` 及 13 个工具。
 
-**热加载**：编辑 `ops_credentials.json` 后无需重启 Claude Code，立即生效。
+## 使用示例
+
+```text
+帮我查询 EP1000000 的申请人、发明人和 CPC 分类。
+
+查询 EP1676595 的 INPADOC 同族和法律事件，并区分事实记录与有效性判断。
+
+搜索申请人为 IBM、标题或摘要涉及 semiconductor laser 的专利，返回前 10 条结果。
+
+把一个原始格式的专利号转换为 DOCDB 格式。
+```
+
+复杂检索建议明确指定检索字段、文献号格式、结果范围和需要返回的字段。
 
 ## 项目结构
 
-```
-epo-ops-mcp/
-├── ops_mcp_server.py              # MCP Server 主程序
-├── ops_credentials.example.json   # 凭证模板（发布用）
-├── ops_credentials.json           # 真实凭证（Git 已忽略）
-├── .gitignore
-└── README.md
+```text
+epo-ops/
+|-- ops_mcp_server.py
+|-- ops_credentials.example.json
+|-- ops_credentials.json            # 本地真实凭证，Git 已忽略
+|-- .gitignore
+|-- LICENSE
+|-- README.md
+`-- README-v2.md
 ```
 
 ## 常见问题
 
-### `/mcp` 显示 "Failed to reconnect: -32000"
+### `/mcp` 显示连接失败
 
-1. 先跑 `--test` 确认 Server 本身正常
-2. 检查 `~/.claude.json` 中 `command` 是否用了完整 Python 路径
-3. 检查 `ops_credentials.json` 是否在脚本同目录下
+1. 先运行 `ops_mcp_server.py --test`，确认凭证和 OPS 网络连接正常。
+2. 运行 `claude mcp get epo-ops`，检查 Python 和脚本是否使用绝对路径。
+3. 确认 MCP 配置中的 Python 环境已经安装 `mcp` 和 `httpx`。
+4. 确认 `ops_credentials.json` 位于脚本目录，或其他凭证来源已正确配置。
+5. 在终端中直接使用配置里的 Python 路径运行脚本，检查启动错误。
 
-### Windows Python 路径问题
+### Windows 找到了错误的 Python
 
-Windows PATH 中常有多个 `python.exe`（微软商店重定向器、LibreOffice 内嵌等），Claude Code 可能命中错误的那个。
+Windows 可能同时存在 Python Launcher、Microsoft Store 执行别名及其他软件附带的 Python。推荐为本项目创建 `.venv`，并在 MCP 配置中使用：
 
-```bash
-# 找到真正的 Python
-python -c "import sys; print(sys.executable)"
-
-# 关闭微软商店的 python.exe 别名
-# Windows 设置 → 应用 → 应用执行别名 → 关闭 python.exe 和 python3.exe
+```text
+<仓库绝对路径>\.venv\Scripts\python.exe
 ```
 
-### 中国专利摘要搜索不到
+查看当前解释器：
 
-EPO OPS 对中文摘要的索引覆盖有限。对于中文专利深度检索，建议配合其他数据库使用。epo-ops 优势在于欧洲专利精确查询、法律状态和同族检索。
-
-### 更换凭证
-
-编辑 `ops_credentials.json`，保存即生效。验证：
-
-```bash
-python ops_mcp_server.py --test
+```powershell
+py -c "import sys; print(sys.executable)"
 ```
 
-## API 配额
+### 修改凭证后没有生效
 
-EPO OPS 有 Fair Use 限制：
-- 小时配额约 450 MB
-- 周配额每周一 UTC 午夜刷新
-- 用 `ops_throttle_status` 随时查看
+代码会在每次工具调用时重新读取凭证，但已经签发的访问令牌可能仍会短暂缓存。如果需要立即排查，可重新运行连通性测试或重启 MCP Server。
 
-详见 [EPO Fair Use 政策](https://www.epo.org/service-support/ordering/fair-use.html)。
+### 查不到中文摘要或全文
+
+OPS 的内容和语言覆盖因国家/地区、文献类型及数据来源而异。查无结果不一定表示专利不存在。中文专利深度检索可配合国家知识产权局、Espacenet 或其他专业专利数据库交叉验证。
+
+### 法律事件是否等于当前法律状态
+
+不等同。`ops_get_legal` 返回的是法律事件记录。判断专利是否在特定国家、特定日期有效，通常还需要结合国家登记簿、年费、期限、异议、无效及权利恢复等信息，并在高风险场景下咨询专业人士。
+
+## OPS 公平使用限制
+
+根据 EPO 当前公布的 Fair Use Charter：
+
+- OPS 免费数据量上限为每个日历周 4 GB
+- 日历周按 GMT 计算，从周一 00:00 到周日 24:00
+- OPS 和 European Publication Server 的最大流量约为 1 Mbit/s
+- EPO 建议将自动批量任务安排在 GMT 19:00 至 07:00 或周末
+- 限额和访问条件可能随运行情况调整
+
+批量任务应控制并发和请求频率，并处理 HTTP 403、429、超时及临时服务故障。
+
+官方说明：[EPO Fair Use Charter](https://www.epo.org/en/service-support/ordering/fair-use)
+
+## 数据与责任说明
+
+- 本工具返回的数据来自 EPO OPS，完整性和时效性受上游服务影响。
+- 法律事件、登记簿和同族数据仅供检索与研究，不构成法律意见。
+- `ops_get_images` 当前返回附图可用性及引用信息，不直接下载图片二进制文件。
+- `ops_throttle_status` 仅显示最近一次 OPS 响应中提供的限流头，不代表精确剩余额度。
+- 使用者应自行遵守 EPO OPS 条款、数据许可和适用法律。
 
 ## 技术栈
 
-- [FastMCP](https://github.com/modelcontextprotocol/python-sdk) — Python MCP SDK
-- [httpx](https://www.python-httpx.org/) — 异步 HTTP 客户端
-- [EPO OPS v3.2](https://developers.epo.org/apis/ops-v32) — REST API
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+- [HTTPX](https://www.python-httpx.org/)
+- [EPO Open Patent Services](https://www.epo.org/en/searching-for-patents/data/web-services/ops)
 
 ## License
 
-MIT
+本项目使用 [MIT License](LICENSE)。
 
 ## 相关资源
 
-- [EPO 开发者门户](https://developers.epo.org)
-- [OPS API 文档](https://developers.epo.org/apis/ops-v32)
-- [MCP 协议规范](https://modelcontextprotocol.io)
-- [完整使用指南（中文）](./MCP使用指南-v1.1.md)
+- [项目仓库](https://github.com/talenlin/epo-ops)
+- [EPO Developer Portal](https://developers.epo.org/)
+- [EPO Open Patent Services](https://www.epo.org/en/searching-for-patents/data/web-services/ops)
+- [EPO Fair Use Charter](https://www.epo.org/en/service-support/ordering/fair-use)
+- [Claude Code MCP 文档](https://code.claude.com/docs/en/mcp)
+- [Model Context Protocol](https://modelcontextprotocol.io/)
+
