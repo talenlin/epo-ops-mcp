@@ -26,7 +26,6 @@
 
 ## 前置条件
 
-- **Claude Code 2.0+**（需支持 MCP 协议）
 - **Python 3.10+**（推荐 3.12+，3.14 已验证）
 - **EPO 开发者账号**（[免费注册](https://developers.epo.org)，审批约 1-3 工作日）
 
