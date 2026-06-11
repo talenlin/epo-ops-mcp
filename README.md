@@ -36,7 +36,7 @@
 1. 访问 [developers.epo.org](https://developers.epo.org) 注册账号
 2. 登录后进入 **My Apps** → **Add new App**
 3. 选择 **OPS v3.2**，创建后获取 **Consumer Key** 和 **Consumer Secret**
-4. ⚠️ Secret 只显示一次，立即保存
+4. 需注意官方说明书说明每个app只存在20分，过了20分钟需要另外建立一个app重新获得key和secret，为了便于替换key和secret，设置了"ops_credentials.example.json"文档，只需要把新的key和secret粘贴到该文档中，MCP设置会进行热更新。
 
 ### 2. 安装
 
@@ -62,7 +62,7 @@ claude mcp add -s user -t stdio epo-ops \
 
 # Windows（必须使用完整 Python 路径！）
 claude mcp add -s user -t stdio epo-ops \
-    -- C:/Users/<用户名>/AppData/Local/Python/bin/python.exe "D:/path/to/epo-ops-mcp/ops_mcp_server.py"
+    -- C:/Users/<用户名>/AppData/Local/Python/bin/python.exe "D:/<完整路径>/ops_mcp_server.py"
 ```
 
 > 💡 **为什么 Windows 要用完整路径？** 见下方 [常见问题](#windows-python-路径问题)。
@@ -90,8 +90,8 @@ python ops_mcp_server.py --test
 
 ```
 你：帮我查一下 EP1000000 的基本信息
-你：EP1676595 现在有效吗？
-你：公牛集团在轨道插座方面的专利有哪些？
+你：EP12345 现在有效吗？
+你：苹果在折叠铰链方面的专利有哪些？
 ```
 
 ## 凭证管理
@@ -137,7 +137,7 @@ python -c "import sys; print(sys.executable)"
 
 ### 中国专利摘要搜索不到
 
-EPO OPS 对中文摘要的索引覆盖有限。对于中文专利深度检索，建议配合 PatSnap / 智慧芽 等数据库使用。epo-ops 优势在于欧洲专利精确查询、法律状态和同族检索。
+EPO OPS 对中文摘要的索引覆盖有限。对于中文专利深度检索，建议配合其他数据库使用。epo-ops 优势在于欧洲专利精确查询、法律状态和同族检索。
 
 ### 更换凭证
 
