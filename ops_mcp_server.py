@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
-EPO OPS MCP Server — bridges Claude Code to the EPO Open Patent Services API v3.2.
+EPO OPS MCP Server v2 — bridges Claude Code to the EPO Open Patent Services API v3.2.
 
-Provides 13 MCP tools for global patent search, retrieval, family/legal/register
-lookups, CPC classification, patent number conversion, and quota monitoring.
+Provides 14 MCP tools for global patent search, retrieval, family/legal/register
+lookups, CPC classification, patent number conversion, enhanced quota monitoring
+(weekly remaining estimation, EPO week-boundary tracking), and rate-limit status.
 
 Authentication: OAuth2 client credentials (Consumer Key + Consumer Secret).
 Credentials are read in this priority order:
-  1. Local JSON file (ops_credentials.json in the same directory as this script)
-  2. OPS_CONSUMER_KEY / OPS_CONSUMER_SECRET environment variables
-  3. OPS_CREDENTIALS_FILE env var (custom path to a JSON credentials file)
+  1. OPS_CREDENTIALS_FILE env var (custom path to a JSON credentials file)
+  2. Local JSON file (ops_credentials.json in the same directory as this script)
+  3. OPS_CONSUMER_KEY / OPS_CONSUMER_SECRET environment variables
 
 The JSON file format (ops_credentials.json):
 {
@@ -34,6 +35,7 @@ import json
 import base64
 import argparse
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import httpx
@@ -51,6 +53,11 @@ TOKEN_BUFFER_SECONDS = 120  # 2 min — EPO tokens are typically ~20 min
 
 # Default range for search results
 DEFAULT_RANGE = "1-25"
+
+# EPO Fair Use weekly quota: 4 GB (per https://www.epo.org/en/service-support/ordering/fair-use)
+# A week is Monday 00:00 GMT to Sunday 24:00 GMT
+OPS_WEEKLY_LIMIT_GB = 4.0
+OPS_WEEKLY_LIMIT_BYTES = int(OPS_WEEKLY_LIMIT_GB * 1024 * 1024 * 1024)
 
 # Logger
 logger = logging.getLogger("epo-ops-mcp")
@@ -220,7 +227,7 @@ tm: OpsTokenManager | None = None
 _last_credentials_hash: str = ""  # track changes to hot-reload
 
 # ---------------------------------------------------------------------------
-# Credentials loader — priority: local JSON > env var OPS_CREDENTIALS_FILE > env vars
+# Credentials loader — priority: OPS_CREDENTIALS_FILE > local JSON > env vars
 # ---------------------------------------------------------------------------
 
 def _default_credentials_path() -> str:
@@ -298,7 +305,8 @@ mcp = FastMCP(
         "- ops_cpc_lookup: CPC classification hierarchy\n"
         "- ops_cpc_search: CPC keyword search\n"
         "- ops_convert_number: patent number format conversion\n"
-        "- ops_throttle_status: rate-limit / quota status"
+        "- ops_throttle_status: rate-limit / quota status (enhanced v2)\n"
+        "- ops_quota_monitor: weekly quota usage, remaining, and reset countdown"
     ),
 )
 
@@ -334,9 +342,50 @@ async def _ensure_client() -> OpsClient:
 def _error_result(msg: str, **extra: Any) -> dict[str, Any]:
     return {"error": msg, **extra}
 
-# ===========================================================================
-#  MCP Tools — Search & Retrieval
-# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Quota monitoring helpers
+# ---------------------------------------------------------------------------
+
+def _get_week_boundaries() -> dict[str, Any]:
+    """Calculate the current EPO quota week boundaries.
+
+    EPO defines a week as Monday 00:00 GMT to Sunday 24:00 GMT.
+    Returns boundaries in both epoch seconds and human-readable ISO 8601.
+    """
+    now = datetime.now(timezone.utc)
+    # Monday of current week at 00:00 GMT
+    days_since_monday = now.weekday()  # Monday=0, Sunday=6
+    week_start = now - timedelta(days=days_since_monday,
+                                 hours=now.hour,
+                                 minutes=now.minute,
+                                 seconds=now.second,
+                                 microseconds=now.microsecond)
+    # Sunday 24:00 GMT = next Monday 00:00 GMT
+    week_end = week_start + timedelta(days=7)
+    now_ts = now.timestamp()
+    week_start_ts = week_start.timestamp()
+    week_end_ts = week_end.timestamp()
+
+    elapsed = now_ts - week_start_ts
+    total = week_end_ts - week_start_ts  # always 604800 seconds
+    remaining = week_end_ts - now_ts
+    progress_pct = round(elapsed / total * 100, 1)
+
+    return {
+        "now_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "week_start": week_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "week_end": week_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "seconds_elapsed": int(elapsed),
+        "seconds_remaining": int(remaining),
+        "hours_remaining": round(remaining / 3600, 1),
+        "days_remaining": round(remaining / 86400, 1),
+        "week_progress_pct": progress_pct,
+        "reset_time": week_end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+# ---------------------------------------------------------------------------
 
 @mcp.tool(
     name="ops_search",
@@ -698,29 +747,106 @@ async def ops_convert_number(
 
 
 # ===========================================================================
-#  MCP Tools — Throttle / Quota Status
+#  MCP Tools — Throttle / Quota Status (Enhanced v2)
 # ===========================================================================
 
 @mcp.tool(
     name="ops_throttle_status",
     description=(
         "Check the current EPO OPS API usage quota and throttling status.\n"
-        "Returns the last known throttle state from the most recent API call, "
-        "including hourly and weekly quota consumption. "
+        "Returns throttle headers from the most recent API call, plus weekly quota "
+        "estimation (based on the 4 GB EPO Fair Use limit, Mon 00:00–Sun 24:00 GMT).\n"
         "Use this before launching heavy search jobs to avoid 403 errors."
     ),
 )
 async def ops_throttle_status() -> dict[str, Any]:
-    """Return current OPS throttling / quota status."""
+    """Return current OPS throttling / quota status with week-boundary tracking."""
     c = await _ensure_client()
+    headers = c.last_throttle_headers
+    week = _get_week_boundaries()
+
+    # Extract raw header values
+    hourly_raw = int(headers.get("X-IndividualQuotaPerHour-Used", "0"))
+    weekly_raw = int(headers.get("X-RegisteredQuotaPerWeek-Used", "0"))
+
     return {
         "last_response_status": c.last_response_status,
         "last_response_url": c.last_response_url,
-        "throttle_headers": c.last_throttle_headers,
+        "throttle_headers": headers,
+        "quota_weekly": {
+            "limit_gb": OPS_WEEKLY_LIMIT_GB,
+            "used_raw": weekly_raw,
+            "estimated_remaining_gb": (
+                None  # EPO does not publish the header unit — raw values only
+            ),
+            "note": (
+                "EPO does not document the exact unit of X-RegisteredQuotaPerWeek-Used. "
+                "The weekly limit is 4 GB per Fair Use charter. "
+                "Monitor the raw 'used_raw' trend to estimate your burn rate."
+            ),
+        },
+        "quota_hourly": {
+            "used_raw": hourly_raw,
+        },
+        "epo_week": {
+            "definition": "Monday 00:00 GMT — Sunday 24:00 GMT",
+            "week_start": week["week_start"],
+            "week_end": week["week_end"],
+            "hours_until_reset": week["hours_remaining"],
+            "days_until_reset": week["days_remaining"],
+            "reset_time": week["reset_time"],
+            "week_progress_pct": week["week_progress_pct"],
+        },
         "note": (
-            "These values reflect the most recent API call. "
-            "Make a search request first if values are empty."
+            "Headers reflect the most recent API call. "
+            "Run any search/retrieval tool first if values are empty. "
+            "Use ops_quota_monitor for a simplified quota-only view."
         ),
+    }
+
+
+@mcp.tool(
+    name="ops_quota_monitor",
+    description=(
+        "Simplified quota monitor: show weekly quota usage, remaining estimate, "
+        "and countdown to the next weekly reset (Monday 00:00 GMT).\n"
+        "Based on the EPO Fair Use limit of 4 GB per calendar week.\n"
+        "Use this for quick quota checks without the full throttle status detail."
+    ),
+)
+async def ops_quota_monitor() -> dict[str, Any]:
+    """Quick quota monitor — weekly usage, remaining, reset countdown."""
+    c = await _ensure_client()
+    headers = c.last_throttle_headers
+    week = _get_week_boundaries()
+
+    weekly_raw = int(headers.get("X-RegisteredQuotaPerWeek-Used", "0"))
+    hourly_raw = int(headers.get("X-IndividualQuotaPerHour-Used", "0"))
+
+    return {
+        "weekly_quota": {
+            "limit": f"{OPS_WEEKLY_LIMIT_GB:.0f} GB",
+            "epo_definition": "Monday 00:00 GMT — Sunday 24:00 GMT",
+            "used_raw": weekly_raw,
+            "remaining_raw_note": (
+                "EPO does not publish the unit of X-RegisteredQuotaPerWeek-Used. "
+                "Track the raw value over time to estimate your burn rate."
+            ),
+        },
+        "hourly_usage": {
+            "used_raw": hourly_raw,
+        },
+        "current_week": {
+            "start": week["week_start"],
+            "end": week["week_end"],
+            "now_utc": week["now_utc"],
+        },
+        "reset_in": {
+            "hours": week["hours_remaining"],
+            "days": week["days_remaining"],
+            "reset_at": week["reset_time"],
+        },
+        "week_elapsed_pct": week["week_progress_pct"],
     }
 
 
@@ -730,7 +856,7 @@ async def ops_throttle_status() -> dict[str, Any]:
 
 async def run_self_test() -> int:
     """Run a connectivity self-test and return exit code (0 = success)."""
-    print("=== EPO OPS MCP Server — Connectivity Test ===\n")
+    print("=== EPO OPS MCP Server v2 — Connectivity Test ===\n")
 
     # Use the same credential resolution as the server
     try:
@@ -774,12 +900,17 @@ async def run_self_test() -> int:
         print(f"  [FAIL] Failed: {e}")
         failures += 1
 
-    # 4. Throttle status
-    print("[4/4] Throttle status:")
+    # 4. Throttle status + quota monitor
+    print("[4/4] Throttle & quota status:")
     headers = c.last_throttle_headers
     if headers:
         for k, v in headers.items():
             print(f"  {k}: {v}")
+        # Show week boundary info
+        week = _get_week_boundaries()
+        print(f"\n  EPO week: {week['week_start']} → {week['week_end']}")
+        print(f"  Hours until reset: {week['hours_remaining']}")
+        print(f"  Weekly limit: {OPS_WEEKLY_LIMIT_GB:.0f} GB")
     else:
         print("  (no throttle headers returned)")
 
@@ -798,7 +929,7 @@ async def run_self_test() -> int:
 # ===========================================================================
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="EPO OPS MCP Server")
+    parser = argparse.ArgumentParser(description="EPO OPS MCP Server v2")
     parser.add_argument(
         "--test", action="store_true",
         help="Run connectivity self-test and exit",
