@@ -19,7 +19,6 @@ cd epo-ops-mcp
 
 ## 历史版本
 
-历史版本通过 Git tag 归档，不在 `main` 分支重复保存完整发布目录。
 
 - v1：`v1.0.0`
 - v2：`v2.0.0`
@@ -31,7 +30,6 @@ git clone --branch v1.0.0 --depth 1 https://github.com/talenlin/epo-ops-mcp.git
 cd epo-ops-mcp
 ```
 
-v1 的旧版说明也归档在 [docs/README-v1.md](docs/README-v1.md)。
 
 ## v2 功能变化
 
@@ -40,6 +38,7 @@ v1 的旧版说明也归档在 [docs/README-v1.md](docs/README-v1.md)。
 - `ops_quota_monitor`：独立周配额监控工具。
 - 增强 `ops_throttle_status`：在最近一次 OPS 响应头基础上，附带 EPO 周边界和重置时间。
 - `--test` 连通性测试输出更完整的配额与周边界信息。
+- 使用epo响应的access token进行连接，而access token自动更新
 
 EPO 当前 Fair Use Charter 说明 OPS 免费数据量上限为每周 4 GB，周期为 GMT 周一 00:00 至周日 24:00。响应头中的 `X-RegisteredQuotaPerWeek-Used` 单位并非明确公开，因此 v2 对剩余额度仅提供辅助估算，不应作为精确计费依据。
 
@@ -227,13 +226,6 @@ py -c "import sys; print(sys.executable)"
 
 代码会在每次工具调用时重新读取凭证，但已经签发的访问令牌可能仍会短暂缓存。如果需要立即排查，可重新运行连通性测试或重启 MCP Server。
 
-### 查不到中文摘要或全文
-
-OPS 的内容和语言覆盖因国家/地区、文献类型及数据来源而异。查无结果不一定表示专利不存在。中文专利深度检索可配合国家知识产权局、Espacenet 或其他专业专利数据库交叉验证。
-
-### 法律事件是否等于当前法律状态
-
-不等同。`ops_get_legal` 返回的是法律事件记录。判断专利是否在特定国家、特定日期有效，通常还需要结合国家登记簿、年费、期限、异议、无效及权利恢复等信息，并在高风险场景下咨询专业人士。
 
 ## OPS 公平使用限制
 
