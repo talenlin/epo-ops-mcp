@@ -55,7 +55,7 @@ EPO 当前 Fair Use Charter 说明 OPS 免费数据量上限为每周 4 GB，周
 | `ops_get_legal` | 获取 INPADOC 法律事件 | 事件记录不应单独作为法律有效性结论 |
 | `ops_get_register` | 获取 EPO 登记簿程序数据 | 主要适用于 EP 文献 |
 | `ops_get_images` | 查询可用附图的元数据 | 当前工具不直接下载图片文件 |
-| `ops_cpc_lookup` | 查询 CPC 分类层级 | 支持祖先、导航和深度参数 |
+| `ops_cpc_lookup` | 查询 CPC 分类层级 | 支持部类组 |
 | `ops_cpc_search` | 按关键词搜索 CPC 分类 | 可用于辅助确定检索分类号 |
 | `ops_convert_number` | 转换专利号格式 | 支持 original、DOCDB 和 epodoc 等格式 |
 | `ops_throttle_status` | 显示最近一次请求的限流信息 | v2 附带 EPO 周边界和重置时间 |
