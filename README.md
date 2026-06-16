@@ -15,7 +15,7 @@ git clone https://github.com/talenlin/epo-ops-mcp.git
 cd epo-ops-mcp
 ```
 
-`main` 分支始终指向最新版。目前最新版为 v2，包含 14 个 MCP 工具。
+目前最新版为 v2，包含 14 个 MCP 工具。
 
 ## 历史版本
 
