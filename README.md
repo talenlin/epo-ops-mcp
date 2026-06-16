@@ -37,7 +37,7 @@
 1. 访问 [developers.epo.org](https://developers.epo.org) 注册账号
 2. 登录后进入 **My Apps** → **Add new App**
 3. 选择 **OPS v3.2**，创建后获取 **Consumer Key** 和 **Consumer Secret**
-4. 需注意官方说明书说明每个app只存在20分，过了20分钟需要另外建立一个app重新获得key和secret，为了便于替换key和secret，设置了"ops_credentials.example.json"文档，只需要把新的key和secret粘贴到该文档中，MCP设置会进行热更新。
+4. 需注意官方说明书说明每个app的comsumer key和comsumer secret key只存在20分，过了20分钟需要另外建立一个app重新获得key和secret，为了便于替换key和secret，设置了"ops_credentials.example.json"文档，只需要把新的key和secret粘贴到该文档中，MCP设置会进行热更新。此后，无需每20分钟再搭建一个新的app了，之后该mcp会将epo反馈的access token保留，后续讲使用保留的access token进行连通。
 
 ### 2. 克隆仓库
 
